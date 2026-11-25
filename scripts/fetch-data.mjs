@@ -232,18 +232,22 @@ async function fetchChainData(chain) {
       settlements: Number(row.settlements ?? 0),
     }))
 
-  const cleanFeed = (Array.isArray(feed.items) ? feed.items : []).map(item => ({
-    type: item.type,
-    timestamp: item.timestamp,
-    taskId: item.taskId,
-    taskTitle: (item.taskTitle || '').slice(0, 110),
-    chainId: item.chainId ?? cid,
-    chainKey: chain.key,
-    token: chain.token,
-    actorShort: shortAddr(item.actor),
-    actorType: item.actorType || null,
-    amountUsd: item.amount != null ? Number(toUsd(item.amount, chain.decimals).toFixed(2)) : null,
-  }))
+  const cleanFeed = (Array.isArray(feed.items) ? feed.items : []).map(item => {
+    const resolvedId = Number(item.chainId ?? cid)
+    const resolvedChain = CHAINS.find(c => c.id === resolvedId) || chain
+    return {
+      type: item.type,
+      timestamp: item.timestamp,
+      taskId: item.taskId,
+      taskTitle: (item.taskTitle || '').slice(0, 110),
+      chainId: resolvedId,
+      chainKey: resolvedChain.key,
+      token: resolvedChain.token,
+      actorShort: shortAddr(item.actor),
+      actorType: item.actorType || null,
+      amountUsd: item.amount != null ? Number(toUsd(item.amount, resolvedChain.decimals).toFixed(2)) : null,
+    }
+  })
 
   const analytics = computeTaskAnalytics(tasks, chain.decimals)
 
@@ -301,8 +305,15 @@ export async function buildMarketSnapshot() {
     }
   }
 
+  const seenFeed = new Set()
   const combinedFeed = [...tempo.feed, ...base.feed]
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .filter(item => {
+      const key = `${item.chainId}:${item.type}:${item.taskId}:${item.timestamp}:${item.actorShort}`
+      if (seenFeed.has(key)) return false
+      seenFeed.add(key)
+      return true
+    })
     .slice(0, 50)
 
   const snapshot = {
